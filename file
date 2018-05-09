@@ -1,0 +1,10 @@
+./simulator simple_cluster.xml deployment_cluster.xml -verbose
+[Main function] MSG_init
+[Main function] call test_all()
+[test_all] simulation setting
+[test_all] register master
+[test_all] register taskManager
+[test_all] launch application
+[test_all] create process taskManager with num_managers = 48
+[test_all] call MSG_main()
+Makefile:37: recipe for target 'debug' failed

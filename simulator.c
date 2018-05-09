@@ -7,6 +7,7 @@
 #include <string.h>
 #include "simgrid/msg.h"        /* Yeah! If you want to use msg, you need to include msg/msg.h */
 #include "xbt/sysdep.h"         /* calloc, printf */
+#include <stdbool.h>
 
 /* Create a log channel to have nice outputs. */
 #include "xbt/log.h"
@@ -57,6 +58,7 @@ struct task_t{
     double *task_comp_size;
     double *task_comm_size;
     msg_host_t *task_workers;
+    int node_allocation;
     int *task_allocation;
 };
 
@@ -76,7 +78,9 @@ struct task_t *task_queue = NULL;
 msg_process_t p_master;
 
 int chosen_policy = FCFS;
-int *busy_workers;
+int *busy_workers1;
+int *busy_workers2;
+int *busy_workers3;
 int num_managers = MODEL_NUM_TASKS + NUM_TASKS_STATE;
 
 double *sched_task_placement;
@@ -184,7 +188,7 @@ msg_error_t test_all(const char *platform_file, const char *application_file){
         _count++;
     }
 
-    printf("------------------After simulation-------------------\n");
+    /*printf("------------------After simulation-------------------\n");
     printf("\t model_runtimes \t model_cores \t model_submit \t start_time \t end_time\n");
     for(i = 0; i < 48; i++){
         printf("\t %f \t \t %d \t \t %d \t \t %f \t %f\n", model_runtimes[i], model_cores[i], model_submit[i], task_queue[i].startTime, task_queue[i].endTime);
@@ -278,48 +282,98 @@ int master(int argc, char *argv[]){
         int j, k;
         todo = xbt_new0(msg_task_t, number_of_tasks);
 
-        busy_workers = (int *) calloc(workers_count, sizeof(int));
+        busy_workers1 = (int *) calloc(workers_count, sizeof(int));
+        busy_workers2 = (int *) calloc(workers_count, sizeof(int));
+        busy_workers3 = (int *) calloc(workers_count, sizeof(int));
         task_queue = (struct task_t *) malloc(number_of_tasks * sizeof(struct task_t));
-
+        
+        bool is_resource_enough = false;
+        int chosen_node = 0;
         for(i = 0;  i < number_of_tasks; i++){
-            int available_nodes;
+            chosen_node = 0;
+            int available_nodes1, available_nodes2, available_nodes3;
             do{
                 while(MSG_get_clock() < model_submit[i]){ // this task has not arrived yet
                     MSG_process_sleep(model_submit[i] - MSG_get_clock());
                 }
-                available_nodes = 0;
-                for(j = 0; j < workers_count; j++){
-                    if(busy_workers[j] == 0){
-                        available_nodes++;
-                        if(available_nodes == model_cores[i]){
-                            printf(BLU"\t availble_nodes - model_core[%d]: %d - %d\n" RESET, i, available_nodes, model_cores[i]);
-                            break;
-                        }
-                    }
+                available_nodes1 = 0;
+                available_nodes2 = 0;
+                available_nodes3 = 0;
+                
+		for(j = 0; j < workers_count; j++){
+		    if(busy_workers1[j] == 0){
+			available_nodes1++;
+			if(available_nodes1 == model_cores[i]){
+			    chosen_node = 1;
+			    // printf(BLU"\t availble_nodes1 - model_core[%d]: %d - %d\n" RESET, i, available_nodes1, model_cores[i]);
+			    break;
+			}
+		    }
+		}
+                if (chosen_node == 0){
+			for(j = 0; j < workers_count; j++){
+			    if(busy_workers2[j] == 0){
+				available_nodes2++;
+				if(available_nodes2 == model_cores[i]){
+				    chosen_node = 2;
+				    // printf(BLU"\t availble_nodes1 - model_core[%d]: %d - %d\n" RESET, i, available_nodes1, model_cores[i]);
+				    break;
+				}
+			    }
+			}
                 }
-                if(available_nodes < model_cores[i]){
+                if (chosen_node == 0){
+			for(j = 0; j < workers_count; j++){
+			    if(busy_workers3[j] == 0){
+				available_nodes3++;
+				if(available_nodes3 == model_cores[i]){
+				    chosen_node = 3;
+				    // printf(BLU"\t availble_nodes1 - model_core[%d]: %d - %d\n" RESET, i, available_nodes1, model_cores[i]);
+				    break;
+				}
+			    }
+			}
+                }
+                is_resource_enough = (chosen_node != 0);
+                if(!is_resource_enough){
                     if(VERBOSE)
-                        XBT_INFO("Insuficient workers for task \"%d\" (%d available workers. need %d). Waiting.", i, available_nodes, model_cores[i]);
+                        XBT_INFO("Insuficient workers for task \"%d\" (node1 %d, node2 %d, node3 %d, available workers. need %d). Waiting.", i, available_nodes1,available_nodes2, available_nodes3, model_cores[i]);
                     MSG_process_suspend(p_master);
                 }
-            }while(available_nodes < model_cores[i]);
+            }while(!is_resource_enough);
 
             task_queue[i].numNodes = model_cores[i];
             task_queue[i].startTime = 0.0f;
             task_queue[i].endTime = 0.0f;
             task_queue[i].submitTime = model_submit[i];
             task_queue[i].task_allocation = (int *) malloc(model_cores[i] * sizeof(int));
+            task_queue[i].node_allocation = chosen_node;
 
             int count = 0;
             for (j = 0; j < workers_count; j++){
-                if(busy_workers[j] == 0){
-                    task_queue[i].task_allocation[count] = j;
-                    busy_workers[j] = 1;
-                    count++;
+		if (chosen_node == 1){
+			if(busy_workers1[j] == 0){
+			    task_queue[i].task_allocation[count] = j;
+			    busy_workers1[j] = 1;
+			    count++;
+			}
+                } else if (chosen_node == 2){
+			if(busy_workers2[j] == 0){
+			    task_queue[i].task_allocation[count] = j;
+			    busy_workers2[j] = 1;
+			    count++;
+			}
+                } else {
+			if(busy_workers3[j] == 0){
+			    task_queue[i].task_allocation[count] = j;
+			    busy_workers3[j] = 1;
+			    count++;
+			}
                 }
-                if(count >= model_cores[i]){
-                    break;
-                }
+
+		if(count >= model_cores[i]){
+		    break;
+		}
             }
 
             msg_host_t self = MSG_host_self();
@@ -339,7 +393,7 @@ int master(int argc, char *argv[]){
             todo[i] = MSG_task_create(sprintf_buffer, comp_size, comm_size, &task_queue[i]);
 
             if(VERBOSE)
-                XBT_INFO("Dispatching \"%s\" [r=%.1f,c=%d, s=%d]", todo[i]->name, model_runtimes[i], model_cores[i], model_submit[i]);
+                XBT_INFO("Dispatching \"%s\" to node %d [r=%.1f,c=%d, s=%d]", todo[i]->name, chosen_node, model_runtimes[i], model_cores[i], model_submit[i]);
             
             /* Task send */
             MSG_task_send(todo[i], MSG_host_get_name(workers[i]));
@@ -400,7 +454,7 @@ int master(int argc, char *argv[]){
 /* Receiver function */
 int taskManager(int argc, char *argv[]){
 
-    printf("----------------start-taskManager----------------\n");
+    // printf("----------------start-taskManager----------------\n");
 
     msg_task_t task = NULL;
     struct task_t *_task = NULL;
@@ -431,8 +485,14 @@ int taskManager(int argc, char *argv[]){
     int * allocation = _task->task_allocation;
     int n = _task->numNodes;
 
-    for(i = 0; i < n; i++)
-        busy_workers[allocation[i]] = 0;
+    for(i = 0; i < n; i++){
+        if (_task->node_allocation == 1)
+            busy_workers1[allocation[i]] = 0;
+        else if (_task->node_allocation == 2)
+            busy_workers2[allocation[i]] = 0;
+        else if (_task->node_allocation == 3)
+            busy_workers3[allocation[i]] = 0;
+    }
 
     MSG_task_destroy(task);
     task = NULL;

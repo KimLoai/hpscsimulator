@@ -29,7 +29,12 @@ O_FILES = $(patsubst %.c,%.o,$(C_FILES))
 %.o: %.c
 	$(CC) $(INCLUDES) $(DEFS) $(CFLAGS) -c -o $@ $<
 
-all: trials_simulator
+all: simulator
+
+run: 
+	./simulator simple_cluster.xml deployment_cluster.xml
+debug: 
+	./simulator simple_cluster.xml deployment_cluster.xml -verbose
 
 clean:
 	rm -f $(BIN_FILES) *.o *~
